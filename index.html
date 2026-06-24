@@ -185,6 +185,16 @@
         .bal-a.sel { border-color: var(--accent2); background: rgba(47,129,247,.14); }
         .bal-b.sel { border-color: var(--accent); background: var(--accent-soft); }
         .bal-vs { text-align: center; font-weight: 800; color: var(--text-dim); margin: 10px 0; letter-spacing: 1px; }
+        .seg { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+        .seg-btn { flex: 1; padding: 8px; border: none; background: none; color: var(--text-dim); font-weight: 600; border-radius: 7px; cursor: pointer; font-size: .9rem; }
+        .seg-btn.active { background: var(--accent-soft); color: var(--accent); }
+        .bal-counter { text-align: center; color: var(--text-dim); font-size: .85rem; margin-bottom: 12px; }
+        .bal-hint { text-align: center; color: var(--text-dim); font-size: .8rem; margin-top: 14px; }
+        .bal-opt.win { border-color: var(--green); }
+        .vote-meta { height: 7px; background: var(--border); border-radius: 4px; margin-top: 10px; overflow: hidden; }
+        .vbar { display: block; height: 100%; width: 0; background: var(--accent2); transition: width .3s; }
+        .vbar.b { background: var(--accent); }
+        .vote-num { font-size: .82rem; color: var(--text-dim); margin-top: 6px; font-weight: 700; }
 
         footer { margin-top: 40px; text-align: center; color: var(--text-dim); font-size: 0.82rem; }
         footer a { color: var(--accent); text-decoration: none; }
@@ -885,7 +895,7 @@
     function nextReveal(who, isLiar){ revealShown = false; revealIdx++; renderReveal(who, isLiar); }
 
     // ── 밸런스 게임 ──
-    let balQueue = [], balIdx = 0, balPool = [];
+    let balQueue = [], balIdx = 0, balPool = [], balMode = "quick", balVotes = [0, 0];
     function balancePool(cat){
         if (cat === "__all__")
             return Object.entries(BALANCE_DECKS).filter(([k]) => !k.includes("19+")).flatMap(([,v]) => v);
@@ -895,6 +905,12 @@
         const cats = Object.keys(BALANCE_DECKS).map(c => `<option value="${c}">${c}</option>`).join("");
         openModal(`${head("⚖️","밸런스 게임")}
             <p style="color:var(--text-dim);font-size:.88rem;margin-bottom:10px">둘 중 하나만! 다같이 손가락으로 고르고 소수파는 해명 or 벌칙.</p>
+            <div class="field"><label>진행 방식</label>
+                <div class="seg">
+                    <button class="seg-btn ${balMode==='quick'?'active':''}" data-mode="quick" onclick="setBalMode('quick')">⚡ 빠르게</button>
+                    <button class="seg-btn ${balMode==='vote'?'active':''}" data-mode="vote" onclick="setBalMode('vote')">🗳️ 투표</button>
+                </div>
+            </div>
             <div class="field"><label>카테고리</label>
                 <select id="bal-cat" onchange="changeBalCat()">
                     <option value="__all__">🎲 전체 (순한맛 믹스)</option>
@@ -905,22 +921,51 @@
             <div id="bal-stage"></div>`);
         changeBalCat();
     }
+    function setBalMode(m){
+        balMode = m; balVotes = [0, 0];
+        document.querySelectorAll(".seg-btn").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+        renderBalance();
+    }
     function changeBalCat(){
         const cat = document.getElementById("bal-cat").value;
         document.getElementById("bal-warn").style.display = cat.includes("19+") ? "block" : "none";
         balPool = balancePool(cat);
-        balQueue = shuffle([...balPool]); balIdx = 0;
+        balQueue = shuffle([...balPool]); balIdx = 0; balVotes = [0, 0];
         renderBalance();
     }
     function renderBalance(){
         if (balIdx >= balQueue.length){ balQueue = shuffle([...balPool]); balIdx = 0; }
         const q = balQueue[balIdx];
-        document.getElementById("bal-stage").innerHTML = `
-            <div style="text-align:center;color:var(--text-dim);font-size:.85rem;margin-bottom:12px">질문 ${balIdx+1} / ${balQueue.length}</div>
-            <div class="bal-opt bal-a" onclick="chooseBal(this)">${q[0]}</div>
-            <div class="bal-vs">— VS —</div>
-            <div class="bal-opt bal-b" onclick="chooseBal(this)">${q[1]}</div>
-            <p style="text-align:center;color:var(--text-dim);font-size:.8rem;margin-top:14px">항목을 누르면 바로 다음 질문</p>`;
+        const counter = `<div class="bal-counter">질문 ${balIdx+1} / ${balQueue.length}</div>`;
+        const stage = document.getElementById("bal-stage");
+        if (balMode === "vote"){
+            const [a, b] = balVotes, tot = a + b;
+            const pa = tot ? Math.round(a / tot * 100) : 0, pb = tot ? 100 - pa : 0;
+            const winA = tot && a > b, winB = tot && b > a;
+            stage.innerHTML = counter + `
+                <div class="bal-opt bal-a${winA?' win':''}" onclick="voteBal(0)">
+                    <div>${q[0]}</div>
+                    <div class="vote-meta"><span class="vbar" style="width:${pa}%"></span></div>
+                    <div class="vote-num">${a}표${tot?' · '+pa+'%':''}</div>
+                </div>
+                <div class="bal-vs">— VS —</div>
+                <div class="bal-opt bal-b${winB?' win':''}" onclick="voteBal(1)">
+                    <div>${q[1]}</div>
+                    <div class="vote-meta"><span class="vbar b" style="width:${pb}%"></span></div>
+                    <div class="vote-num">${b}표${tot?' · '+pb+'%':''}</div>
+                </div>
+                <p class="bal-hint">항목을 눌러 투표 · 누른 만큼 표 누적</p>
+                <div class="btn-row">
+                    <button class="btn ghost" onclick="resetVotes()">초기화</button>
+                    <button class="btn primary" onclick="advanceBal()">다음 질문 ▶</button>
+                </div>`;
+        } else {
+            stage.innerHTML = counter + `
+                <div class="bal-opt bal-a" onclick="chooseBal(this)">${q[0]}</div>
+                <div class="bal-vs">— VS —</div>
+                <div class="bal-opt bal-b" onclick="chooseBal(this)">${q[1]}</div>
+                <p class="bal-hint">항목을 누르면 바로 다음 질문</p>`;
+        }
     }
     let balLock = false;
     function chooseBal(elm){
@@ -929,6 +974,9 @@
         elm.classList.add("sel");
         setTimeout(() => { balLock = false; balIdx++; renderBalance(); }, 240);
     }
+    function voteBal(i){ balVotes[i]++; renderBalance(); }
+    function resetVotes(){ balVotes = [0, 0]; renderBalance(); }
+    function advanceBal(){ balVotes = [0, 0]; balIdx++; renderBalance(); }
 
     // ── 제시어 / 질문 덱 ──
     function toolDeck(){
